@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KeyWord Search</title>
+    <link rel="stylesheet" href="/styles/style.css">
+</head>
+<body>
+   <div class="container">
+        <div class="input-group">
+            <input type="text" id="keywords" placeholder="Search keywords...">
+            <button id="searchButton">Search</button>
+        </div>
+        
+        <div class="options">
+            <div class="toggle-group">
+                <label class="switch">
+                    <input type="checkbox" id="caseSensitive">
+                    <span class="slider"></span>
+                </label>
+                <span>Case-sensitive</span>
+            </div>
+            <button id="clearButton">Clear</button>
+        </div>
+
+        <div id="matchCount"></div>
+    </div>
+    <script src="/scripts/index.js"></script>
+</body>
+</html>
