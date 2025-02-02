@@ -47,5 +47,5 @@ A sophisticated Chrome extension for detecting and highlighting keywords on web 
 
 ### Developer Setup
 ```bash
-git clone https://github.com/yourusername/keyword-highlighter.git
-cd keyword-highlighter
+git clone https://github.com/seunfola/search_extension.git
+cd keyword-searcher
