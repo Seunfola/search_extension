@@ -20,24 +20,23 @@ class KeywordHighlighter {
         if (!keywords.length) return;
 
         const flags = caseSensitive ? 'g' : 'gi';
-        const regex = new RegExp(`\\b(${keywords.map(this.escapeRegExp).join('|')})\\b`, flags);
+        // Remove word boundaries and fix regex pattern
+        const regex = new RegExp(`(${keywords.map(this.escapeRegExp).join('|')})`, flags);
 
         this.walkTextNodes(node => {
             if (node.textContent.trim() && !node.parentElement.closest('script, style')) {
-                const matches = node.textContent.match(regex);
-                if (matches) {
-                    const span = document.createElement('span');
-                    span.innerHTML = node.textContent.replace(regex, '<mark class="$&">$1</mark>');
+                const newContent = node.textContent.replace(regex, '<mark class="keyword-highlight">$1</mark>');
+                if (newContent !== node.textContent) {
+                    const wrapper = document.createElement('span');
+                    wrapper.innerHTML = newContent;
 
-                    const newElements = Array.from(span.childNodes).map(child => {
-                        if (child instanceof HTMLElement && child.tagName === 'MARK') {
-                            child.className = this.highlightClass;
-                            this.highlightedElements.push(child);
-                        }
-                        return child;
+                    // Collect all matches
+                    const matches = wrapper.querySelectorAll('.keyword-highlight');
+                    matches.forEach(highlight => {
+                        this.highlightedElements.push(highlight);
                     });
 
-                    node.replaceWith(...newElements);
+                    node.replaceWith(...wrapper.childNodes);
                 }
             }
         });
@@ -80,11 +79,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'search') {
         const keywords = request.keywords.split(/,\s*|\s+/).filter(Boolean);
         highlighter.highlight(keywords, request.caseSensitive);
-        sendResponse({ count: highlighter.highlightedElements.length });
+
+        // Return actual matched texts and count
+        const matches = highlighter.highlightedElements.map(el => el.textContent);
+        sendResponse({
+            count: matches.length,
+            matches: matches
+        });
     }
 
     if (request.action === 'clear') {
         highlighter.clearHighlights();
-        sendResponse({ count: 0 });
+        sendResponse({ count: 0, matches: [] });
     }
 });
