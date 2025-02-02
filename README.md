@@ -1,4 +1,4 @@
-# Keyword Highlighter Chrome Extension
+# Keyword search_extension Chrome Extension
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 ![Chrome Web Store](https://img.shields.io/chrome-web-store/v/your-extension-id-here?label=Chrome%20Web%20Store)
@@ -11,12 +11,7 @@ A sophisticated Chrome extension for detecting and highlighting keywords on web 
 ## Table of Contents
 - [Features](#features)
 - [Installation](#installation)
-- [Usage](#usage)
-- [Development](#development)
-- [Project Structure](#project-structure)
-- [Contributing](#contributing)
 - [License](#license)
-- [Acknowledgments](#acknowledgments)
 
 ## Features
 
@@ -36,7 +31,7 @@ A sophisticated Chrome extension for detecting and highlighting keywords on web 
 ## Installation
 
 ### Prerequisites
-- Google Chrome v88+ or compatible Chromium browser
+- Google Chrome v8+ or compatible Chromium browser
 - Git (for development setup)
 
 ### User Installation
@@ -48,4 +43,4 @@ A sophisticated Chrome extension for detecting and highlighting keywords on web 
 ### Developer Setup
 ```bash
 git clone https://github.com/seunfola/search_extension.git
-cd keyword-searcher
+cd search_extension
