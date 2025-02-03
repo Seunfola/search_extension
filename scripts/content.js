@@ -1,95 +1,100 @@
 class KeywordHighlighter {
     constructor() {
         this.highlightClass = 'keyword-highlight';
-        this.highlightedElements = [];
+        this.markedElements = new Set();
+        this.observer = new MutationObserver(this.handleDOMChanges.bind(this));
+        this.currentConfig = null;
+    }
+
+    handleDOMChanges(mutations) {
+        if (!this.currentConfig) return;
+        mutations.forEach(mutation => {
+            if (mutation.type === 'characterData' || mutation.addedNodes.length) {
+                this.highlight(this.currentConfig.keywords, this.currentConfig.caseSensitive);
+            }
+        });
     }
 
     clearHighlights() {
-        this.highlightedElements.forEach(element => {
-            const parent = element.parentNode;
+        this.markedElements.forEach(el => {
+            const parent = el.parentNode;
             if (parent) {
-                parent.replaceChild(document.createTextNode(element.textContent), element);
+                const textNode = document.createTextNode(el.textContent);
+                parent.replaceChild(textNode, el);
                 parent.normalize();
             }
         });
-        this.highlightedElements = [];
+        this.markedElements.clear();
     }
 
     highlight(keywords, caseSensitive) {
         this.clearHighlights();
-        if (!keywords.length) return;
+        this.currentConfig = { keywords, caseSensitive };
 
         const flags = caseSensitive ? 'g' : 'gi';
-        // Remove word boundaries and fix regex pattern
-        const regex = new RegExp(`(${keywords.map(this.escapeRegExp).join('|')})`, flags);
+        const pattern = keywords.map(k => this.escapeRegex(k)).join('|');
+        const regex = new RegExp(`(${pattern})`, flags);
 
-        this.walkTextNodes(node => {
-            if (node.textContent.trim() && !node.parentElement.closest('script, style')) {
-                const newContent = node.textContent.replace(regex, '<mark class="keyword-highlight">$1</mark>');
-                if (newContent !== node.textContent) {
-                    const wrapper = document.createElement('span');
-                    wrapper.innerHTML = newContent;
+        this.processTextNodes(node => {
+            if (!node.parentNode || node.parentNode.closest('script, style')) return;
 
-                    // Collect all matches
-                    const matches = wrapper.querySelectorAll('.keyword-highlight');
-                    matches.forEach(highlight => {
-                        this.highlightedElements.push(highlight);
-                    });
+            const matches = node.textContent.match(regex);
+            if (matches) {
+                const wrapper = document.createElement('span');
+                wrapper.innerHTML = node.textContent.replace(regex, '<mark class="keyword-highlight">$1</mark>');
 
-                    node.replaceWith(...wrapper.childNodes);
-                }
+                const newNodes = Array.from(wrapper.childNodes);
+                node.parentNode.replaceChild(wrapper, node);
+
+                newNodes.forEach(n => {
+                    if (n.nodeName === 'MARK') this.markedElements.add(n);
+                });
             }
         });
 
-        this.scrollToFirstMatch();
+        this.observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            characterData: true
+        });
     }
 
-    walkTextNodes(callback) {
+    processTextNodes(callback) {
         const treeWalker = document.createTreeWalker(
             document.body,
             NodeFilter.SHOW_TEXT,
-            {
-                acceptNode: node =>
-                    node.textContent.trim() ?
-                        NodeFilter.FILTER_ACCEPT :
-                        NodeFilter.FILTER_REJECT
-            }
+            { acceptNode: node => node.textContent.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT }
         );
 
-        while (treeWalker.nextNode()) {
-            callback(treeWalker.currentNode);
-        }
+        while (treeWalker.nextNode()) callback(treeWalker.currentNode);
     }
 
-    scrollToFirstMatch() {
-        const firstMatch = document.querySelector(`.${this.highlightClass}`);
-        if (firstMatch) {
-            firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
+    escapeRegex(text) {
+        return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
-    escapeRegExp(string) {
-        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    getMatches() {
+        return Array.from(this.markedElements).map(el => el.textContent);
     }
 }
 
 const highlighter = new KeywordHighlighter();
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'search') {
-        const keywords = request.keywords.split(/,\s*|\s+/).filter(Boolean);
-        highlighter.highlight(keywords, request.caseSensitive);
+    switch (request.action) {
+        case 'search':
+            highlighter.highlight(request.keywords, request.caseSensitive);
+            const matches = highlighter.getMatches();
+            sendResponse({
+                count: matches.length,
+                matches: matches
+            });
+            break;
 
-        // Return actual matched texts and count
-        const matches = highlighter.highlightedElements.map(el => el.textContent);
-        sendResponse({
-            count: matches.length,
-            matches: matches
-        });
+        case 'clear':
+            highlighter.clearHighlights();
+            sendResponse({ count: 0, matches: [] });
+            break;
     }
-
-    if (request.action === 'clear') {
-        highlighter.clearHighlights();
-        sendResponse({ count: 0, matches: [] });
-    }
+    return true;
 });

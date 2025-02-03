@@ -1,86 +1,147 @@
+class VoiceSearchEngine {
+    constructor() {
+        this.recognition = null;
+        this.synth = window.speechSynthesis;
+        this.isListening = false;
+        this.loadVoices();
+    }
+
+    loadVoices() {
+        this.voices = [];
+        const load = () => {
+            this.voices = this.synth.getVoices();
+            this.defaultVoice = this.voices.find(v => v.default) || this.voices[0];
+        };
+        this.synth.onvoiceschanged = load;
+        load();
+    }
+
+    initVoiceRecognition() {
+        this.recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        this.recognition.continuous = false;
+        this.recognition.interimResults = false;
+        this.recognition.lang = navigator.language || 'en-US';
+
+        this.recognition.onstart = () => {
+            this.isListening = true;
+            document.getElementById('inputModeToggle').classList.add('recording');
+        };
+
+        this.recognition.onresult = (e) => {
+            const transcript = e.results[0][0].transcript;
+            document.getElementById('keywords').value = transcript;
+            this.triggerSearch();
+        };
+
+        this.recognition.onerror = (e) => {
+            console.error('Speech recognition error:', e.error);
+            this.isListening = false;
+        };
+
+        this.recognition.onend = () => {
+            this.isListening = false;
+            document.getElementById('inputModeToggle').classList.remove('recording');
+        };
+    }
+
+    triggerSearch() {
+        document.getElementById('searchButton').click();
+    }
+
+    speak(text) {
+        if (this.synth.speaking) this.synth.cancel();
+
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.voice = this.defaultVoice;
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        utterance.volume = 0.8;
+
+        this.synth.speak(utterance);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-    const searchButton = document.getElementById('searchButton');
-    const clearButton = document.getElementById('clearButton');
-    const caseSensitive = document.getElementById('caseSensitive');
+    const voiceEngine = new VoiceSearchEngine();
+    const ttsToggle = document.getElementById('ttsToggle');
+    const inputModeToggle = document.getElementById('inputModeToggle');
     const keywordsInput = document.getElementById('keywords');
-    const matchCount = document.getElementById('matchCount');
-    const matchList = document.createElement('ul');
+    const matchList = document.getElementById('matchList');
+    let isVoiceMode = true;
 
-    // Configure match list styling
-    matchList.id = 'matchList';
-    matchList.style.maxHeight = '200px';
-    matchList.style.overflowY = 'auto';
-    matchList.style.padding = '0';
-    matchList.style.margin = '10px 0 0 0';
-    document.querySelector('.container').appendChild(matchList);
-
-    // Load saved settings
-    chrome.storage.sync.get(['keywords', 'caseSensitive'], (data) => {
-        keywordsInput.value = data.keywords || '';
-        caseSensitive.checked = Boolean(data.caseSensitive);
+    // Toggle between voice and text mode
+    inputModeToggle.addEventListener('click', () => {
+        isVoiceMode = !isVoiceMode;
+        inputModeToggle.classList.toggle('voice-mode', isVoiceMode);
+        keywordsInput.disabled = isVoiceMode;
+        inputModeToggle.textContent = isVoiceMode ? '🎤' : '⌨️';
+        inputModeToggle.setAttribute('aria-label', isVoiceMode ? 'Switch to text mode' : 'Switch to voice mode');
     });
 
-    searchButton.addEventListener('click', () => {
-        const keywords = keywordsInput.value.trim();
-        if (!keywords) {
-            showMessage('Please enter keywords', 'error');
-            return;
+    // Voice Button Handler
+    inputModeToggle.addEventListener('click', () => {
+        if (isVoiceMode && !voiceEngine.isListening) {
+            voiceEngine.initVoiceRecognition();
+            voiceEngine.recognition.start();
         }
+    });
 
-        // Save settings and search
-        chrome.storage.sync.set({
-            keywords: keywords,
-            caseSensitive: caseSensitive.checked
-        }, () => {
+    // Search Handler
+    document.getElementById('searchButton').addEventListener('click', () => {
+        const keywords = document.getElementById('keywords').value.trim().split(/\s+/);
+        const caseSensitive = document.getElementById('caseSensitive').checked;
+
+        if (keywords.length > 0) {
             chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
                 chrome.tabs.sendMessage(tabs[0].id, {
                     action: 'search',
                     keywords: keywords,
-                    caseSensitive: caseSensitive.checked
+                    caseSensitive: caseSensitive
                 }, response => {
-                    if (chrome.runtime.lastError) {
-                        showMessage('Error communicating with content script', 'error');
-                        return;
+                    const resultText = `Found ${response.count} matches:`;
+                    document.getElementById('matchCount').textContent = resultText;
+
+                    // Display all matches
+                    matchList.innerHTML = '';
+                    response.matches.forEach((match, index) => {
+                        const li = document.createElement('li');
+                        li.textContent = `${index + 1}. ${match}`;
+                        li.style.padding = '5px';
+                        li.style.borderBottom = '1px solid #ddd';
+                        li.style.fontSize = '0.9em';
+                        matchList.appendChild(li);
+                    });
+
+                    if (ttsToggle.checked) {
+                        voiceEngine.speak(resultText);
                     }
-                    updateMatchDisplay(response);
                 });
             });
-        });
+        }
     });
 
-    clearButton.addEventListener('click', () => {
+    // Clear Handler
+    document.getElementById('clearButton').addEventListener('click', () => {
         chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
             chrome.tabs.sendMessage(tabs[0].id, { action: 'clear' }, () => {
-                keywordsInput.value = '';
-                showMessage('Highlights cleared', 'success');
+                document.getElementById('keywords').value = '';
+                document.getElementById('matchCount').textContent = '';
                 matchList.innerHTML = '';
             });
         });
     });
 
-    function updateMatchDisplay(response) {
-        matchList.innerHTML = '';
-        matchCount.textContent = '';
+    // Settings Persistence
+    chrome.storage.sync.get(['ttsEnabled', 'caseSensitive'], data => {
+        ttsToggle.checked = data.ttsEnabled ?? true;
+        document.getElementById('caseSensitive').checked = data.caseSensitive ?? false;
+    });
 
-        if (response && response.count > 0) {
-            showMessage(`${response.count} matches found`, 'success');
-            response.matches.forEach((matchText, index) => {
-                const li = document.createElement('li');
-                li.textContent = `${index + 1}. ${matchText}`;
-                li.style.padding = '5px';
-                li.style.borderBottom = '1px solid #ddd';
-                li.style.fontSize = '0.9em';
-                matchList.appendChild(li);
-            });
-        } else {
-            showMessage('No matches found', 'error');
-        }
-    }
+    ttsToggle.addEventListener('change', () => {
+        chrome.storage.sync.set({ ttsEnabled: ttsToggle.checked });
+    });
 
-    function showMessage(message, type) {
-        matchCount.textContent = message;
-        matchCount.style.color = type === 'error' ? '#ff4444' : '#00c851';
-        matchCount.style.fontWeight = '500';
-        matchCount.style.margin = '10px 0';
-    }
+    document.getElementById('caseSensitive').addEventListener('change', function () {
+        chrome.storage.sync.set({ caseSensitive: this.checked });
+    });
 });

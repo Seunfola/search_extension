@@ -1,35 +1,40 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Keyword Search</title>
-    <link rel="stylesheet" href="/styles/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice & Text Search</title>
+  <link rel="stylesheet" href="styles/style.css">
 </head>
 <body>
-   <div class="container">
-        <div class="input-group">
-            <input type="text" id="keywords" placeholder="Search keywords...">
-            <button id="searchButton">Search</button>
-        </div>
-        
-        <div class="options">
-            <div class="toggle-group">
-                <label class="switch">
-                    <input type="checkbox" id="caseSensitive">
-                    <span class="slider"></span>
-                </label>
-                <span>Case-sensitive</span>
-            </div>
-            <button id="clearButton">Clear</button>
-        </div>
-
-        <!-- Match Count and List Container -->
-        <div id="results">
-            <div id="matchCount"></div>
-            <ul id="matchList"></ul>
-        </div>
+  <div class="container">
+    <div class="search-box">
+      <div class="input-mode-toggle">
+        <button id="inputModeToggle" aria-label="Switch input mode">🎤</button>
+      </div>
+      <input type="text" id="keywords" placeholder="Search keywords..." disabled>
+      <button id="searchButton">Search</button>
     </div>
-    <script src="/scripts/index.js"></script>
+
+    <div class="controls">
+      <div class="switch-group">
+        <label>
+          <input type="checkbox" id="caseSensitive">
+          <span>Case Sensitive</span>
+        </label>
+        <label>
+          <input type="checkbox" id="ttsToggle" checked>
+          <span> Speak </span>
+        </label>
+      </div>
+      <button id="clearButton">Clear</button>
+    </div>
+
+    <div id="results">
+      <div id="matchCount" aria-live="polite"></div>
+      <ul id="matchList"></ul>
+    </div>
+  </div>
+  <script src="scripts/index.js"></script>
 </body>
 </html>
