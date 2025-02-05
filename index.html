@@ -3,38 +3,36 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voice & Text Search</title>
+  <title>Text and Voice Search Extension</title>
   <link rel="stylesheet" href="styles/style.css">
 </head>
 <body>
   <div class="container">
-    <div class="search-box">
-      <div class="input-mode-toggle">
-        <button id="inputModeToggle" aria-label="Switch input mode">🎤</button>
+    <div class="search-controls">
+      <div class="input-container">
+        <button id="inputModeToggle" class="icon-button" aria-label="Toggle input mode">🎤</button>
+        <input type="text" id="searchInput" placeholder="Click mic to start speaking...">
+        <button id="searchButton" class="primary-button">Search</button>
       </div>
-      <input type="text" id="keywords" placeholder="Search keywords..." disabled>
-      <button id="searchButton">Search</button>
-    </div>
-
-    <div class="controls">
-      <div class="switch-group">
-        <label>
+      
+      <div class="settings-container">
+        <label class="setting-item">
           <input type="checkbox" id="caseSensitive">
           <span>Case Sensitive</span>
         </label>
-        <label>
+        <label class="setting-item">
           <input type="checkbox" id="ttsToggle" checked>
-          <span> Speak </span>
+          <span>Read Results</span>
         </label>
+        <button id="clearButton" class="secondary-button">Clear</button>
       </div>
-      <button id="clearButton">Clear</button>
     </div>
 
-    <div id="results">
-      <div id="matchCount" aria-live="polite"></div>
-      <ul id="matchList"></ul>
+    <div class="results-container">
+      <div id="resultCount" aria-live="polite"></div>
+      <ul id="resultList"></ul>
     </div>
   </div>
-  <script src="scripts/index.js"></script>
+  <script src="dist/index.js" type="module"></script>
 </body>
 </html>

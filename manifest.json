@@ -1,13 +1,16 @@
 {
   "manifest_version": 3,
-  "name": "Voice & Text Search Pro",
+  "name": "Voice & Text keyword Search",
   "version": "2.2",
   "description": "Search using text or voice with instant results and TTS feedback.",
   "permissions": [
     "activeTab",
     "scripting",
-    "storage",
-    "audioCapture"
+    "storage"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ],
   "action": {
     "default_popup": "index.html",
@@ -17,18 +20,21 @@
   },
   "content_scripts": [
     {
-    "matches": ["<all_urls>"],
-    "js": ["scripts/content.js"],
-    "css": ["styles/content.css"]
-  }
-],
+      "matches": ["<all_urls>"],
+      "js": ["dist/content.js"],
+      "css": ["styles/content.css"]
+    }
+  ],
   "icons": {
     "128": "assets/logo.png"
   },
   "web_accessible_resources": [
     {
-    "resources": ["styles/content.css"],
-    "matches": ["<all_urls>"]
-  }
-]
+      "resources": [
+        "styles/content.css",
+        "assets/logo.png"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }
