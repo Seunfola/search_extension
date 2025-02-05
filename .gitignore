@@ -1,0 +1,12 @@
+# Dependency directories
+node_modules/
+dist/
+
+# Environment files
+.env
+.env.local
+.DS_Store
+
+# Build files
+*.js
+*.js.map
