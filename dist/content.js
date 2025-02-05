@@ -1,3 +1,5 @@
+"use strict";
+/// <reference lib="dom" />
 class ContentHighlighter {
     constructor() {
         this.highlightClass = 'search-highlight';
@@ -97,5 +99,4 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
     return true;
 });
-export {};
 //# sourceMappingURL=content.js.map

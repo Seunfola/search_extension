@@ -170,7 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!tabs[0]?.id) return;
 
       chrome.tabs.sendMessage<ExtensionMessage, SearchResult>(
-        tabs[0].id,
+        tabs[0].id!,
         {
           action: 'search',
           keywords,
@@ -178,8 +178,9 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         (response) => {
           if (chrome.runtime.lastError) {
-            console.error('Runtime error:', chrome.runtime.lastError);
-            return;
+                 console.error('Connection error:', chrome.runtime.lastError);
+      resultCount.textContent = 'Error communicating with page';
+      return;
           }
 
           const resultText = response?.count 

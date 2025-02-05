@@ -1,5 +1,13 @@
 /// <reference lib="dom" />
-import { HighlightMessage, SearchResult } from './types';
+
+type HighlightMessage = 
+  | { action: 'search'; keywords: string[]; caseSensitive: boolean }
+  | { action: 'clear' };
+
+type SearchResult = {
+  count: number;
+  matches: string[];
+};
 
 class ContentHighlighter {
   private readonly highlightClass = 'search-highlight';

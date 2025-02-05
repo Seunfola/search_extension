@@ -2,7 +2,7 @@
   "name": "voice-text-search",
   "version": "1.0.0",
   "scripts": {
-    "build": "tsc",
+    "build": "npx tsc && cp -r src/types.ts dist/",
     "watch": "tsc -w"
   },
   "devDependencies": {

@@ -160,7 +160,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 caseSensitive: caseSensitive.checked
             }, (response) => {
                 if (chrome.runtime.lastError) {
-                    console.error('Runtime error:', chrome.runtime.lastError);
+                    console.error('Connection error:', chrome.runtime.lastError);
+                    resultCount.textContent = 'Error communicating with page';
                     return;
                 }
                 const resultText = (response === null || response === void 0 ? void 0 : response.count)
