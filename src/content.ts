@@ -1,134 +1,101 @@
 /// <reference lib="dom" />
 
-type HighlightMessage = 
-  | { action: 'search'; keywords: string[]; caseSensitive: boolean }
-  | { action: 'clear' };
-
-type SearchResult = {
-  count: number;
-  matches: string[];
-};
-
-class ContentHighlighter {
-  private readonly highlightClass = 'search-highlight';
-  public markers = new Set<HTMLElement>();
-  private observer: MutationObserver;
-  private currentQuery: { keywords: string[]; caseSensitive: boolean } | null = null;
-
-  constructor() {
-    this.observer = new MutationObserver(mutations => this.handleDOMChanges(mutations));
-  }
-
-  public getMarkers(): Set<HTMLElement> {
-    return this.markers;
-  }
-
-  private handleDOMChanges(mutations: MutationRecord[]): void {
-    if (this.currentQuery) {
-      this.highlightKeywords(this.currentQuery.keywords, this.currentQuery.caseSensitive);
-    }
-  }
-
-  clearHighlights(): void {
-    this.markers.forEach(marker => {
-      const parent = marker.parentNode;
-      if (parent) {
-        parent.replaceChild(document.createTextNode(marker.textContent || ''), marker);
-        parent.normalize();
-      }
-    });
-    this.markers.clear();
-    this.observer.disconnect();
-  }
-
-  highlightKeywords(keywords: string[], caseSensitive: boolean): void {
-    if (!keywords.length || keywords.some(k => !k.trim())) {
-      console.error('Invalid keywords');
-      return;
-    }
-
-    this.clearHighlights();
-    this.currentQuery = { keywords, caseSensitive };
-
-    try {
-      const flags = caseSensitive ? 'g' : 'gi';
-      const pattern = keywords
-        .map(k => this.escapeRegex(k))
-        .join('|');
-      const regex = new RegExp(`\\b(${pattern})\\b`, flags);
-
-      this.processTextNodes(node => {
-        if (!node.textContent || !node.parentNode || this.isInForbiddenElement(node)) return;
-
-        const wrapper = document.createElement('span');
-        wrapper.innerHTML = node.textContent.replace(regex, '<mark class="$&">$1</mark>');
-        
-        const newNodes = Array.from(wrapper.childNodes);
-        const markers = wrapper.querySelectorAll<HTMLElement>('mark');
-        markers.forEach(marker => this.markers.add(marker));
-
-        (node as ChildNode).replaceWith(...newNodes);
-      });
-
-      this.observer.observe(document.body, {
-        childList: true,
-        subtree: true,
-        characterData: true
-      });
-    } catch (error) {
-      console.error('Highlighting failed:', error);
-    }
-  }
-
-  private processTextNodes(callback: (node: Node) => void): void {
-    const walker = document.createTreeWalker(
-      document.body,
-      NodeFilter.SHOW_TEXT,
-      { 
-        acceptNode: (node) => 
-          node.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT 
-      }
-    );
-
-    let currentNode: Node | null;
-    while ((currentNode = walker.nextNode())) {
-      callback(currentNode);
-    }
-  }
-
-  private escapeRegex(text: string): string {
-    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-
-  private isInForbiddenElement(node: Node): boolean {
-    return !!(node.parentNode as Element)?.closest('script, style, noscript, head');
-  }
+interface Window {
+  hasRun?: boolean;
 }
 
-const highlighter = new ContentHighlighter();
+(function () {
+  if (window.hasRun) return;
+  window.hasRun = true;
 
-chrome.runtime.onMessage.addListener((
-  message: HighlightMessage,
-  _sender,
-  sendResponse: (response?: SearchResult) => void
-) => {
-  try {
-    switch (message.action) {
-      case 'search':
-          highlighter.highlightKeywords(message.keywords, message.caseSensitive);
-          sendResponse({
-            count: highlighter.markers.size,
-            matches: Array.from(highlighter.markers).map(m => m.textContent || '')
+  class ContentHighlighter {
+    private readonly highlightClass = 'search-highlight';
+    private markers: HTMLElement[] = [];
+
+    highlight(keywords: string[]): void {
+      this.clear();
+      if (!keywords.length) return;
+
+      try {
+        const pattern = keywords
+          .map(k => k.trim())
+          .filter(Boolean)
+          .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+          .join('|');
+
+        if (!pattern) return;
+
+        const regex = new RegExp(`(${pattern})`, 'gi');
+
+        document.querySelectorAll('*').forEach(element => {
+          if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD'].includes(element.tagName)) return;
+          
+          element.childNodes.forEach(node => {
+            if (node.nodeType !== Node.TEXT_NODE) return;
+
+            const text = node.textContent || '';
+            const fragment = document.createDocumentFragment();
+            let lastIndex = 0;
+
+            for (const match of text.matchAll(regex)) {
+              if (match.index === undefined) return;
+
+              // Add preceding text
+              if (match.index > lastIndex) {
+                fragment.appendChild(
+                  document.createTextNode(text.slice(lastIndex, match.index))
+                );
+              }
+
+              // Add highlight
+              const mark = document.createElement('mark');
+              mark.className = this.highlightClass;
+              mark.textContent = match[0];
+              this.markers.push(mark);
+              fragment.appendChild(mark);
+
+              lastIndex = match.index + match[0].length;
+            }
+
+            // Add remaining text
+            if (lastIndex < text.length) {
+              fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+            }
+
+            node.replaceWith(fragment);
           });
-          break;
-      case 'clear':
-        highlighter.clearHighlights();
-        sendResponse({ count: 0, matches: [] });
-        break;
+        });
+
+      } catch (error) {
+        console.error('Highlight error:', error);
+      }
     }
-  } catch (error) {
-    console.error('Message handling failed:', error);
-    sendResponse({ count: 0, matches: [] });
+
+    clear(): void {
+      this.markers.forEach(marker => {
+        const parent = marker.parentNode;
+        if (parent) parent.replaceChild(
+          document.createTextNode(marker.textContent || ''), 
+          marker
+        );
+      });
+      this.markers = [];
+    }
   }
-  return true;
-});
+
+  const highlighter = new ContentHighlighter();
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    try {
+      if (message.action === 'search' && message.keywords?.length) {
+        highlighter.highlight(message.keywords);
+        sendResponse({ success: true });
+      }
+      if (message.action === 'clear') highlighter.clear();
+    } catch (error) {
+      console.error('Message error:', error);
+      sendResponse({ success: false });
+    }
+    return true;
+  });
+})();

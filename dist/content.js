@@ -27,27 +27,44 @@ class ContentHighlighter {
         this.observer.disconnect();
     }
     highlightKeywords(keywords, caseSensitive) {
-        if (!keywords.length || keywords.some(k => !k.trim())) {
-            console.error('Invalid keywords');
+        if (!keywords.length)
             return;
-        }
         this.clearHighlights();
         this.currentQuery = { keywords, caseSensitive };
         try {
             const flags = caseSensitive ? 'g' : 'gi';
             const pattern = keywords
+                .map(k => k.trim())
+                .filter(Boolean)
                 .map(k => this.escapeRegex(k))
                 .join('|');
-            const regex = new RegExp(`\\b(${pattern})\\b`, flags);
+            if (!pattern)
+                return;
+            const regex = new RegExp(`(${pattern})`, flags);
             this.processTextNodes(node => {
                 if (!node.textContent || !node.parentNode || this.isInForbiddenElement(node))
                     return;
-                const wrapper = document.createElement('span');
-                wrapper.innerHTML = node.textContent.replace(regex, '<mark class="$&">$1</mark>');
-                const newNodes = Array.from(wrapper.childNodes);
-                const markers = wrapper.querySelectorAll('mark');
-                markers.forEach(marker => this.markers.add(marker));
-                node.replaceWith(...newNodes);
+                const fragment = document.createDocumentFragment();
+                let lastIndex = 0;
+                let match;
+                const text = node.textContent;
+                regex.lastIndex = 0;
+                while ((match = regex.exec(text)) !== null) {
+                    if (match.index === regex.lastIndex) {
+                        regex.lastIndex++;
+                    }
+                    fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+                    const mark = document.createElement('mark');
+                    mark.className = this.highlightClass;
+                    mark.textContent = match[0];
+                    this.markers.add(mark);
+                    fragment.appendChild(mark);
+                    lastIndex = regex.lastIndex;
+                }
+                if (lastIndex < text.length) {
+                    fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+                }
+                node.parentNode.replaceChild(fragment, node);
             });
             this.observer.observe(document.body, {
                 childList: true,
@@ -56,7 +73,7 @@ class ContentHighlighter {
             });
         }
         catch (error) {
-            console.error('Highlighting failed:', error);
+            console.error('Highlighting error:', error);
         }
     }
     processTextNodes(callback) {
@@ -78,14 +95,17 @@ class ContentHighlighter {
 }
 const highlighter = new ContentHighlighter();
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    var _a;
     try {
         switch (message.action) {
             case 'search':
-                highlighter.highlightKeywords(message.keywords, message.caseSensitive);
-                sendResponse({
-                    count: highlighter.markers.size,
-                    matches: Array.from(highlighter.markers).map(m => m.textContent || '')
-                });
+                if ((_a = message.keywords) === null || _a === void 0 ? void 0 : _a.length) {
+                    highlighter.highlightKeywords(message.keywords, message.caseSensitive);
+                    sendResponse({
+                        count: highlighter.markers.size,
+                        matches: Array.from(highlighter.markers).map(m => m.textContent || '')
+                    });
+                }
                 break;
             case 'clear':
                 highlighter.clearHighlights();
@@ -94,9 +114,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
     }
     catch (error) {
-        console.error('Message handling failed:', error);
+        console.error('Message handling error:', error);
         sendResponse({ count: 0, matches: [] });
     }
     return true;
+});
+chrome.runtime.onConnect.addListener(port => {
+    console.log('Connected:', port.name);
+    port.onDisconnect.addListener(() => console.log('Disconnected'));
 });
 //# sourceMappingURL=content.js.map

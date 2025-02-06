@@ -109,103 +109,140 @@ class VoiceSearchEngine {
     }
 }
 document.addEventListener('DOMContentLoaded', () => {
-    const getElement = (id) => {
-        const el = document.getElementById(id);
-        if (!el)
-            throw new Error(`Element ${id} not found`);
-        return el;
-    };
     const voiceEngine = new VoiceSearchEngine();
-    const inputModeToggle = getElement('inputModeToggle');
-    const searchInput = getElement('searchInput');
-    const searchButton = getElement('searchButton');
-    const clearButton = getElement('clearButton');
-    const resultList = getElement('resultList');
-    const resultCount = getElement('resultCount');
-    const ttsToggle = getElement('ttsToggle');
-    const caseSensitive = getElement('caseSensitive');
+    const getElement = (id) => document.getElementById(id) || (() => { throw new Error(`${id} not found`); })();
+    const elements = {
+        inputModeToggle: getElement('inputModeToggle'),
+        searchInput: getElement('searchInput'),
+        searchButton: getElement('searchButton'),
+        clearButton: getElement('clearButton'),
+        resultList: getElement('resultList'),
+        resultCount: getElement('resultCount'),
+        ttsToggle: getElement('ttsToggle'),
+        caseSensitive: getElement('caseSensitive')
+    };
     let isVoiceMode = true;
-    // Initialize voice mode
-    searchInput.disabled = true;
-    inputModeToggle.classList.add('voice-mode');
-    inputModeToggle.addEventListener('click', () => {
+    elements.searchInput.disabled = true;
+    elements.inputModeToggle.classList.add('voice-mode');
+    // Input mode toggle
+    elements.inputModeToggle.addEventListener('click', () => {
         isVoiceMode = !isVoiceMode;
-        searchInput.disabled = isVoiceMode;
-        inputModeToggle.classList.toggle('voice-mode', isVoiceMode);
-        inputModeToggle.textContent = isVoiceMode ? '🎤' : '⌨️';
-        searchInput.placeholder = isVoiceMode ? 'Click mic to start speaking...' : 'Type your search terms...';
+        elements.searchInput.disabled = isVoiceMode;
+        elements.inputModeToggle.classList.toggle('voice-mode', isVoiceMode);
+        elements.inputModeToggle.textContent = isVoiceMode ? '🎤' : '⌨️';
+        elements.searchInput.placeholder = isVoiceMode
+            ? 'Click mic to start speaking...'
+            : 'Type your search terms...';
         if (!isVoiceMode)
-            searchInput.focus();
+            elements.searchInput.focus();
     });
-    inputModeToggle.addEventListener('click', () => {
+    // Voice recognition
+    elements.inputModeToggle.addEventListener('click', () => __awaiter(void 0, void 0, void 0, function* () {
         if (isVoiceMode && !voiceEngine.isListening) {
-            voiceEngine.initVoiceRecognition()
-                .catch(err => console.error('Voice recognition failed:', err));
+            try {
+                yield voiceEngine.initVoiceRecognition();
+            }
+            catch (error) {
+                elements.resultCount.textContent = `Error: ${error.message}`;
+            }
         }
-    });
-    searchButton.addEventListener('click', () => {
-        const keywords = searchInput.value.trim().split(/\s+/).filter(Boolean);
+    }));
+    // Search handler
+    elements.searchButton.addEventListener('click', () => __awaiter(void 0, void 0, void 0, function* () {
+        const rawInput = elements.searchInput.value.trim();
+        // Handle single character searches
+        const keywords = rawInput.length === 1
+            ? [rawInput]
+            : rawInput.split(/\s+/).filter(Boolean);
         if (!keywords.length) {
-            resultCount.textContent = 'Please enter search terms';
-            resultList.innerHTML = '';
+            elements.resultCount.textContent = 'Please enter search terms';
+            elements.resultList.innerHTML = '';
             return;
         }
-        chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-            var _a;
-            if (!((_a = tabs[0]) === null || _a === void 0 ? void 0 : _a.id))
-                return;
-            chrome.tabs.sendMessage(tabs[0].id, {
+        try {
+            const [tab] = yield chrome.tabs.query({
+                active: true,
+                currentWindow: true,
+                status: 'complete'
+            });
+            if (!(tab === null || tab === void 0 ? void 0 : tab.id))
+                throw new Error('No active tab found');
+            // Ensure content script is injected
+            yield chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                files: ['dist/content.js']
+            });
+            // Send message with retries
+            const response = yield sendMessageWithRetry(tab.id, {
                 action: 'search',
                 keywords,
-                caseSensitive: caseSensitive.checked
-            }, (response) => {
-                if (chrome.runtime.lastError) {
-                    console.error('Connection error:', chrome.runtime.lastError);
-                    resultCount.textContent = 'Error communicating with page';
-                    return;
-                }
-                const resultText = (response === null || response === void 0 ? void 0 : response.count)
-                    ? `Found ${response.count} matches`
-                    : 'No matches found';
-                resultCount.textContent = resultText;
-                resultList.innerHTML = ((response === null || response === void 0 ? void 0 : response.matches) || [])
-                    .map((match, index) => `
-                <li>
-                    <span class="match-number">${index + 1}.</span>
-                    <span class="match-text">${match}</span>
-                </li>
-            `).join('');
-                if (ttsToggle.checked)
-                    voiceEngine.speak(resultText);
+                caseSensitive: elements.caseSensitive.checked
             });
-        });
-    });
-    clearButton.addEventListener('click', () => {
-        chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
-            var _a;
-            if ((_a = tabs[0]) === null || _a === void 0 ? void 0 : _a.id) {
-                chrome.tabs.sendMessage(tabs[0].id, { action: 'clear' });
-            }
-            searchInput.value = '';
-            resultList.innerHTML = '';
-            resultCount.textContent = '';
-        });
-    });
+            handleSearchResponse(response);
+        }
+        catch (error) {
+            console.error('Search failed:', error);
+            elements.resultCount.textContent = `Error: ${error.message}`;
+        }
+    }));
+    // Clear handler
+    elements.clearButton.addEventListener('click', () => __awaiter(void 0, void 0, void 0, function* () {
+        const [tab] = yield chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab === null || tab === void 0 ? void 0 : tab.id) {
+            yield chrome.tabs.sendMessage(tab.id, { action: 'clear' });
+        }
+        elements.searchInput.value = '';
+        elements.resultList.innerHTML = '';
+        elements.resultCount.textContent = '';
+    }));
+    // Settings persistence
     chrome.storage.sync.get(['ttsEnabled', 'caseSensitive'], data => {
         var _a, _b;
-        ttsToggle.checked = (_a = data.ttsEnabled) !== null && _a !== void 0 ? _a : true;
-        caseSensitive.checked = (_b = data.caseSensitive) !== null && _b !== void 0 ? _b : false;
+        elements.ttsToggle.checked = (_a = data.ttsEnabled) !== null && _a !== void 0 ? _a : true;
+        elements.caseSensitive.checked = (_b = data.caseSensitive) !== null && _b !== void 0 ? _b : false;
     });
-    ttsToggle.addEventListener('change', () => {
-        chrome.storage.sync.set({ ttsEnabled: ttsToggle.checked });
+    elements.ttsToggle.addEventListener('change', () => {
+        chrome.storage.sync.set({ ttsEnabled: elements.ttsToggle.checked });
     });
-    caseSensitive.addEventListener('change', () => {
-        chrome.storage.sync.set({ caseSensitive: caseSensitive.checked });
+    elements.caseSensitive.addEventListener('change', () => {
+        chrome.storage.sync.set({ caseSensitive: elements.caseSensitive.checked });
     });
-    searchInput.addEventListener('keypress', e => {
+    // Enter key support
+    elements.searchInput.addEventListener('keypress', e => {
         if (e.key === 'Enter')
-            searchButton.click();
+            elements.searchButton.click();
     });
+    function sendMessageWithRetry(tabId_1, message_1) {
+        return __awaiter(this, arguments, void 0, function* (tabId, message, retries = 3) {
+            try {
+                return yield chrome.tabs.sendMessage(tabId, message);
+            }
+            catch (error) {
+                if (retries > 0) {
+                    yield new Promise(resolve => setTimeout(resolve, 300));
+                    return sendMessageWithRetry(tabId, message, retries - 1);
+                }
+                throw error;
+            }
+        });
+    }
+    function handleSearchResponse(response) {
+        const count = (response === null || response === void 0 ? void 0 : response.count) || 0;
+        const matches = (response === null || response === void 0 ? void 0 : response.matches) || [];
+        elements.resultCount.textContent = count
+            ? `Found ${count} matches`
+            : 'No matches found';
+        elements.resultList.innerHTML = matches
+            .map((match, index) => `
+        <li>
+          <span class="match-number">${index + 1}.</span>
+          <span class="match-text">${match}</span>
+        </li>
+      `).join('');
+        if (elements.ttsToggle.checked) {
+            voiceEngine.speak(elements.resultCount.textContent || '');
+        }
+    }
 });
 export {};
 //# sourceMappingURL=index.js.map

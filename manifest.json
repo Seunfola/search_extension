@@ -1,41 +1,23 @@
 {
   "manifest_version": 3,
-  "name": "Voice & Text keyword Search",
+  "name": "Voice & Text Search",
   "version": "2.2",
-  "description": "Search using text or voice with instant results and TTS feedback.",
-  "permissions": [
-    "activeTab",
-    "scripting",
-    "storage"
-  ],
-  "host_permissions": [
-    "http://*/*",
-    "https://*/*"
-  ],
+  "description": "Case-insensitive search with highlights",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
   "action": {
     "default_popup": "index.html",
-    "default_icon": {
-      "128": "assets/logo.png"
-    }
+    "default_icon": { "128": "assets/logo.png" }
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["dist/content.js"],
-      "css": ["styles/content.css"],
-      "run_at": "document_idle"
-    }
-  ],
-  "icons": {
-    "128": "assets/logo.png"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "styles/content.css",
-        "assets/logo.png"
-      ],
-      "matches": ["<all_urls>"]
-    }
-  ]
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["dist/content.js"],
+    "css": ["styles/content.css"],
+    "run_at": "document_end",
+    "all_frames": true
+  }],
+  "icons": { "128": "assets/logo.png" },
+  "background": {
+    "service_worker": "dist/background.js"
+  }
 }
