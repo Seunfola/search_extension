@@ -1,111 +1,122 @@
-/// <reference lib="dom" />
+class KeywordHighlighter {
+  highlightClass: string;
+  highlightedElements: HTMLElement[];
 
-interface Window {
-  hasRun?: boolean;
-}
+  constructor() {
+    this.highlightClass = 'keyword-highlight';
+    this.highlightedElements = [];
+  }
 
-(function () {
-  if (window.hasRun) return;
-  window.hasRun = true;
-
-  class ContentHighlighter {
-    private readonly highlightClass = 'search-highlight';
-    private markers: HTMLElement[] = [];
-
-    highlight(searchString: string): void {
-      this.clear();
-      if (!searchString.trim()) return;
-
-      try {
-        // Escape regex special characters
-        const escapedString = searchString.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const regex = new RegExp(`(${escapedString})`, 'gi');
-
-        // Process all text nodes in the document
-        const walker = document.createTreeWalker(
-          document.body,
-          NodeFilter.SHOW_TEXT,
-          {
-            acceptNode: (node) =>
-              node.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT
-          }
-        );
-
-        while (walker.nextNode()) {
-          const node = walker.currentNode;
-          if (!node.textContent || !node.parentNode || this.isInForbiddenElement(node)) continue;
-
-          const text = node.textContent;
-          const fragment = document.createDocumentFragment();
-          let lastIndex = 0;
-          let match: RegExpExecArray | null;
-
-          // Reset regex state for each node
-          regex.lastIndex = 0;
-
-          while ((match = regex.exec(text)) !== null) {
-            // Add preceding text
-            if (match.index > lastIndex) {
-              fragment.appendChild(
-                document.createTextNode(text.slice(lastIndex, match.index))
-              );
-            }
-
-            // Add highlighted match
-            const mark = document.createElement('mark');
-            mark.className = this.highlightClass;
-            mark.textContent = match[0];
-            this.markers.push(mark);
-            fragment.appendChild(mark);
-
-            lastIndex = regex.lastIndex;
-          }
-
-          // Add remaining text
-          if (lastIndex < text.length) {
-            fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
-          }
-
-          // Replace original node
-          node.parentNode.replaceChild(fragment, node);
-        }
-
-      } catch (error) {
-        console.error('Highlight error:', error);
+  clearHighlights(): void {
+    this.highlightedElements.forEach((element) => {
+      const parent = element.parentNode;
+      if (parent) {
+        // Replace the marked element with a text node containing its text content
+        parent.replaceChild(document.createTextNode(element.textContent || ''), element);
+        parent.normalize();
       }
-    }
+    });
+    this.highlightedElements = [];
+  }
 
-    clear(): void {
-      this.markers.forEach(marker => {
-        const parent = marker.parentNode;
-        if (parent) parent.replaceChild(
-          document.createTextNode(marker.textContent || ''),
-          marker
-        );
-      });
-      this.markers = [];
-    }
+  /**
+   * Highlights every occurrence of the keywords in the document.
+   * Returns an array of all matched words.
+   */
+  highlight(keywords: string[], caseSensitive: boolean): string[] {
+    this.clearHighlights();
+    if (!keywords.length) return [];
 
-    private isInForbiddenElement(node: Node): boolean {
-      return !!(node.parentNode as Element)?.closest(
-        'script, style, noscript, head, textarea, svg, [aria-hidden], .hidden, .sr-only'
-      );
+    // Create a regex from the keywords
+    const flags = caseSensitive ? 'g' : 'gi';
+    const escapedKeywords = keywords.map((word) => this.escapeRegExp(word));
+    const regex = new RegExp(`\\b(${escapedKeywords.join('|')})\\b`, flags);
+
+    // Array to collect matched words
+    const matchedWords: string[] = [];
+
+    this.walkTextNodes((node: Text) => {
+      if (
+        node.textContent &&
+        node.textContent.trim() &&
+        !node.parentElement?.closest('script, style')
+      ) {
+        // Use matchAll to get all matches in the current text node
+        const matches = Array.from(node.textContent.matchAll(regex));
+        if (matches.length > 0) {
+          // Collect each matched word (match[0] is the matched string)
+          matches.forEach((match) => {
+            if (match[0]) {
+              matchedWords.push(match[0]);
+            }
+          });
+
+          // Create a temporary container element to build the new HTML with highlights
+          const span = document.createElement('span');
+          // Replace each matched word with a <mark> element having our highlight class
+          span.innerHTML = node.textContent.replace(
+            regex,
+            `<mark class="${this.highlightClass}">$1</mark>`
+          );
+
+          // Record all <mark> elements so we can later clear highlights
+          const newElements = Array.from(span.childNodes);
+          newElements.forEach((child) => {
+            if (child instanceof HTMLElement && child.tagName === 'MARK') {
+              child.className = this.highlightClass;
+              this.highlightedElements.push(child);
+            }
+          });
+
+          node.replaceWith(...newElements);
+        }
+      }
+    });
+
+    this.scrollToFirstMatch();
+    return matchedWords;
+  }
+
+  walkTextNodes(callback: (node: Text) => void): void {
+    const treeWalker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode: (node: Node) =>
+          node.textContent && node.textContent.trim()
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_REJECT,
+      }
+    );
+    while (treeWalker.nextNode()) {
+      callback(treeWalker.currentNode as Text);
     }
   }
 
-  const highlighter = new ContentHighlighter();
-
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    try {
-      if (message.action === 'search' && message.searchString?.trim()) {
-        highlighter.highlight(message.searchString);
-        sendResponse({ success: true });
-      }
-      if (message.action === 'clear') highlighter.clear();
-    } catch (error) {
-      console.error('Message error:', error);
-      sendResponse({ success: false });
+  scrollToFirstMatch(): void {
+    const firstMatch = document.querySelector(`.${this.highlightClass}`) as HTMLElement | null;
+    if (firstMatch) {
+      firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-    return true;
-  });
-})();
+  }
+
+  escapeRegExp(string: string): string {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+}
+
+const highlighter = new KeywordHighlighter();
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'search') {
+    const keywords: string[] = request.keywords
+      .split(/,\s*|\s+/)
+      .filter((word: string) => word);
+    const matchedWords = highlighter.highlight(keywords, request.caseSensitive);
+    // Return both the count of highlighted elements and the list of matched words
+    sendResponse({ count: highlighter.highlightedElements.length, matchedWords });
+  } else if (request.action === 'clear') {
+    highlighter.clearHighlights();
+    sendResponse({ count: 0, matchedWords: [] });
+  }
+});

@@ -12,12 +12,11 @@
   "content_scripts": [{
     "matches": ["<all_urls>"],
     "js": ["dist/content.js"],
-    "css": ["styles/content.css"],
-    "run_at": "document_end",
-    "all_frames": true
+    "css": ["styles/content.css"]
   }],
   "icons": { "128": "assets/logo.png" },
-  "background": {
-    "service_worker": "dist/background.js"
-  }
+  "web_accessible_resources": [{
+        "resources": ["styles/content.css"],
+        "matches": ["<all_urls>"]
+    }]
 }

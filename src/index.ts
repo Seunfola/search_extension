@@ -1,69 +1,64 @@
-/// <reference types="chrome" />
-
-class VoiceSearch {
-  private recognition: SpeechRecognition | null = null;
-
-  async start(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-      this.recognition.lang = navigator.language;
-      this.recognition.onresult = (e) => {
-        const transcript = e.results[0][0].transcript;
-        (document.getElementById('searchInput') as HTMLInputElement).value = transcript;
-        this.search();
-      };
-      this.recognition.start();
-      resolve();
-    });
-  }
-
-  search(): void {
-    document.getElementById('searchButton')!.click();
-  }
-}
-
 document.addEventListener('DOMContentLoaded', () => {
-  const voice = new VoiceSearch();
-  const searchInput = document.getElementById('searchInput') as HTMLInputElement;
   const searchButton = document.getElementById('searchButton') as HTMLButtonElement;
-  const voiceButton = document.getElementById('inputModeToggle') as HTMLButtonElement;
-
-  // Voice search
-  voiceButton.addEventListener('click', () => voice.start());
-
-  // Text search
-  searchButton.addEventListener('click', async () => {
-    const searchString = searchInput.value.trim();
-    if (!searchString) return;
-
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) return;
-
-    try {
-      // Inject content script if not already present
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ['dist/content.js']
-      });
-
-      // Send search string to content script
-      await chrome.tabs.sendMessage(tab.id, {
-        action: 'search',
-        searchString
-      });
-
-    } catch (error) {
-      console.error('Search failed:', error);
-    }
-  });
-
-  // Clear results
   const clearButton = document.getElementById('clearButton') as HTMLButtonElement;
-  clearButton.addEventListener('click', async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) {
-      await chrome.tabs.sendMessage(tab.id, { action: 'clear' });
-    }
-    searchInput.value = '';
+  const caseSensitive = document.getElementById('caseSensitive') as HTMLInputElement;
+  const keywordsInput = document.getElementById('keywords') as HTMLInputElement;
+  const matchCount = document.getElementById('matchCount') as HTMLDivElement;
+
+  // Load saved settings from Chrome storage
+  chrome.storage.sync.get(['keywords', 'caseSensitive'], (data: { keywords?: string; caseSensitive?: boolean }) => {
+    if (data.keywords) keywordsInput.value = data.keywords;
+    caseSensitive.checked = !!data.caseSensitive;
   });
+
+  searchButton.addEventListener('click', () => {
+    const keywords = keywordsInput.value.trim();
+    if (!keywords) {
+      matchCount.textContent = 'Please enter keywords';
+      return;
+    }
+
+    // Save settings
+    chrome.storage.sync.set({
+      keywords: keywords,
+      caseSensitive: caseSensitive.checked,
+    });
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs: chrome.tabs.Tab[]) => {
+      if (tabs[0].id) {
+        chrome.tabs.sendMessage(
+          tabs[0].id,
+          {
+            action: 'search',
+            keywords: keywords,
+            caseSensitive: caseSensitive.checked,
+          },
+          updateMatchCount
+        );
+      }
+    });
+  });
+
+  clearButton.addEventListener('click', () => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs: chrome.tabs.Tab[]) => {
+      if (tabs[0].id) {
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'clear' }, () => {
+          matchCount.textContent = 'Highlights cleared';
+          keywordsInput.value = '';
+        });
+      }
+    });
+  });
+
+  function updateMatchCount(response: { count: number; matchedWords?: string[] }) {
+    if (response && response.count > 0) {
+      matchCount.textContent = `${response.count} matches found: ${
+        response.matchedWords ? response.matchedWords.join(', ') : ''
+      }`;
+      matchCount.style.color = '#4CAF50';
+    } else {
+      matchCount.textContent = 'No matches found';
+      matchCount.style.color = '#ff0000';
+    }
+  }
 });

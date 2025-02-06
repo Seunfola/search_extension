@@ -1,76 +1,84 @@
-"use strict";
-/// <reference types="chrome" />
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
+
+document.addEventListener('DOMContentLoaded', () => {
+    const searchButton = document.getElementById('searchButton');
+    const clearButton = document.getElementById('clearButton');
+    const caseSensitive = document.getElementById('caseSensitive');
+    const keywordsInput = document.getElementById('keywords');
+    const matchCount = document.getElementById('matchCount');
+    const matchList = document.createElement('ul');
+    // Configure match list styling
+    matchList.id = 'matchList';
+    matchList.style.maxHeight = '200px';
+    matchList.style.overflowY = 'auto';
+    matchList.style.padding = '0';
+    matchList.style.margin = '10px 0 0 0';
+    document.querySelector('.container').appendChild(matchList);
+
+    // Load saved settings
+    chrome.storage.sync.get(['keywords', 'caseSensitive'], (data) => {
+        keywordsInput.value = data.keywords || '';
+        caseSensitive.checked = Boolean(data.caseSensitive);
     });
-};
-class VoiceSearch {
-    constructor() {
-        this.recognition = null;
-    }
-    start() {
-        return __awaiter(this, void 0, void 0, function* () {
-            return new Promise((resolve, reject) => {
-                this.recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-                this.recognition.lang = navigator.language;
-                this.recognition.onresult = (e) => {
-                    const transcript = e.results[0][0].transcript;
-                    document.getElementById('searchInput').value = transcript;
-                    this.search();
-                };
-                this.recognition.start();
-                resolve();
+
+    searchButton.addEventListener('click', () => {
+        const keywords = keywordsInput.value.trim();
+        if (!keywords) {
+            showMessage('Please enter keywords', 'error');
+            return;
+        }
+
+        // Save settings and search
+        chrome.storage.sync.set({
+            keywords: keywords,
+            caseSensitive: caseSensitive.checked
+        }, () => {
+            chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+                chrome.tabs.sendMessage(tabs[0].id, {
+                    action: 'search',
+                    keywords: keywords,
+                    caseSensitive: caseSensitive.checked
+                }, response => {
+                    if (chrome.runtime.lastError) {
+                        showMessage('Error communicating with content script', 'error');
+                        return;
+                    }
+                    updateMatchDisplay(response);
+                });
             });
         });
-    }
-    search() {
-        document.getElementById('searchButton').click();
-    }
-}
-document.addEventListener('DOMContentLoaded', () => {
-    const voice = new VoiceSearch();
-    const searchInput = document.getElementById('searchInput');
-    const searchButton = document.getElementById('searchButton');
-    const voiceButton = document.getElementById('inputModeToggle');
-    // Voice search
-    voiceButton.addEventListener('click', () => voice.start());
-    // Text search
-    searchButton.addEventListener('click', () => __awaiter(void 0, void 0, void 0, function* () {
-        const searchString = searchInput.value.trim();
-        if (!searchString)
-            return;
-        const [tab] = yield chrome.tabs.query({ active: true, currentWindow: true });
-        if (!(tab === null || tab === void 0 ? void 0 : tab.id))
-            return;
-        try {
-            // Inject content script if not already present
-            yield chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                files: ['dist/content.js']
+    });
+
+    clearButton.addEventListener('click', () => {
+        chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
+            chrome.tabs.sendMessage(tabs[0].id, { action: 'clear' }, () => {
+                keywordsInput.value = '';
+                showMessage('Highlights cleared', 'success');
+                matchList.innerHTML = '';
             });
-            // Send search string to content script
-            yield chrome.tabs.sendMessage(tab.id, {
-                action: 'search',
-                searchString
+        });
+    });
+
+    function updateMatchDisplay(response) {
+        matchList.innerHTML = '';
+        matchCount.textContent = '';
+        if (response && response.count > 0) {
+            showMessage(`${response.count} matches found`, 'success');
+            response.matches.forEach((matchText, index) => {
+                const li = document.createElement('li');
+                li.textContent = `${index + 1}. ${matchText}`;
+                li.style.padding = '5px';
+                li.style.borderBottom = '1px solid #ddd';
+                li.style.fontSize = '0.9em';
+                matchList.appendChild(li);
             });
+        } else {
+            showMessage('No matches found', 'error');
         }
-        catch (error) {
-            console.error('Search failed:', error);
-        }
-    }));
-    // Clear results
-    const clearButton = document.getElementById('clearButton');
-    clearButton.addEventListener('click', () => __awaiter(void 0, void 0, void 0, function* () {
-        const [tab] = yield chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab === null || tab === void 0 ? void 0 : tab.id) {
-            yield chrome.tabs.sendMessage(tab.id, { action: 'clear' });
-        }
-        searchInput.value = '';
-    }));
+    }
+    function showMessage(message, type) {
+        matchCount.textContent = message;
+        matchCount.style.color = type === 'error' ? '#ff4444' : '#00c851';
+        matchCount.style.fontWeight = '500';
+        matchCount.style.margin = '10px 0';
+    }
 });
-//# sourceMappingURL=index.js.map
