@@ -1,126 +1,88 @@
 "use strict";
 /// <reference lib="dom" />
-class ContentHighlighter {
-    constructor() {
-        this.highlightClass = 'search-highlight';
-        this.markers = new Set();
-        this.currentQuery = null;
-        this.observer = new MutationObserver(mutations => this.handleDOMChanges(mutations));
-    }
-    getMarkers() {
-        return this.markers;
-    }
-    handleDOMChanges(mutations) {
-        if (this.currentQuery) {
-            this.highlightKeywords(this.currentQuery.keywords, this.currentQuery.caseSensitive);
+(function () {
+    if (window.hasRun)
+        return;
+    window.hasRun = true;
+    class ContentHighlighter {
+        constructor() {
+            this.highlightClass = 'search-highlight';
+            this.markers = [];
+        }
+        highlight(keywords) {
+            this.clear();
+            if (!keywords.length)
+                return;
+            try {
+                const pattern = keywords
+                    .map(k => k.trim())
+                    .filter(Boolean)
+                    .map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+                    .join('|');
+                if (!pattern)
+                    return;
+                const regex = new RegExp(`(${pattern})`, 'gi');
+                document.querySelectorAll('*').forEach(element => {
+                    if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD'].includes(element.tagName))
+                        return;
+                    element.childNodes.forEach(node => {
+                        if (node.nodeType !== Node.TEXT_NODE)
+                            return;
+                        const text = node.textContent || '';
+                        const fragment = document.createDocumentFragment();
+                        let lastIndex = 0;
+                        for (const match of text.matchAll(regex)) {
+                            if (match.index === undefined)
+                                return;
+                            // Add preceding text
+                            if (match.index > lastIndex) {
+                                fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+                            }
+                            // Add highlight
+                            const mark = document.createElement('mark');
+                            mark.className = this.highlightClass;
+                            mark.textContent = match[0];
+                            this.markers.push(mark);
+                            fragment.appendChild(mark);
+                            lastIndex = match.index + match[0].length;
+                        }
+                        // Add remaining text
+                        if (lastIndex < text.length) {
+                            fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
+                        }
+                        node.replaceWith(fragment);
+                    });
+                });
+            }
+            catch (error) {
+                console.error('Highlight error:', error);
+            }
+        }
+        clear() {
+            this.markers.forEach(marker => {
+                const parent = marker.parentNode;
+                if (parent)
+                    parent.replaceChild(document.createTextNode(marker.textContent || ''), marker);
+            });
+            this.markers = [];
         }
     }
-    clearHighlights() {
-        this.markers.forEach(marker => {
-            const parent = marker.parentNode;
-            if (parent) {
-                parent.replaceChild(document.createTextNode(marker.textContent || ''), marker);
-                parent.normalize();
-            }
-        });
-        this.markers.clear();
-        this.observer.disconnect();
-    }
-    highlightKeywords(keywords, caseSensitive) {
-        if (!keywords.length)
-            return;
-        this.clearHighlights();
-        this.currentQuery = { keywords, caseSensitive };
+    const highlighter = new ContentHighlighter();
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+        var _a;
         try {
-            const flags = caseSensitive ? 'g' : 'gi';
-            const pattern = keywords
-                .map(k => k.trim())
-                .filter(Boolean)
-                .map(k => this.escapeRegex(k))
-                .join('|');
-            if (!pattern)
-                return;
-            const regex = new RegExp(`(${pattern})`, flags);
-            this.processTextNodes(node => {
-                if (!node.textContent || !node.parentNode || this.isInForbiddenElement(node))
-                    return;
-                const fragment = document.createDocumentFragment();
-                let lastIndex = 0;
-                let match;
-                const text = node.textContent;
-                regex.lastIndex = 0;
-                while ((match = regex.exec(text)) !== null) {
-                    if (match.index === regex.lastIndex) {
-                        regex.lastIndex++;
-                    }
-                    fragment.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
-                    const mark = document.createElement('mark');
-                    mark.className = this.highlightClass;
-                    mark.textContent = match[0];
-                    this.markers.add(mark);
-                    fragment.appendChild(mark);
-                    lastIndex = regex.lastIndex;
-                }
-                if (lastIndex < text.length) {
-                    fragment.appendChild(document.createTextNode(text.slice(lastIndex)));
-                }
-                node.parentNode.replaceChild(fragment, node);
-            });
-            this.observer.observe(document.body, {
-                childList: true,
-                subtree: true,
-                characterData: true
-            });
+            if (message.action === 'search' && ((_a = message.keywords) === null || _a === void 0 ? void 0 : _a.length)) {
+                highlighter.highlight(message.keywords);
+                sendResponse({ success: true });
+            }
+            if (message.action === 'clear')
+                highlighter.clear();
         }
         catch (error) {
-            console.error('Highlighting error:', error);
+            console.error('Message error:', error);
+            sendResponse({ success: false });
         }
-    }
-    processTextNodes(callback) {
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-            acceptNode: (node) => { var _a; return ((_a = node.textContent) === null || _a === void 0 ? void 0 : _a.trim()) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT; }
-        });
-        let currentNode;
-        while ((currentNode = walker.nextNode())) {
-            callback(currentNode);
-        }
-    }
-    escapeRegex(text) {
-        return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    }
-    isInForbiddenElement(node) {
-        var _a;
-        return !!((_a = node.parentNode) === null || _a === void 0 ? void 0 : _a.closest('script, style, noscript, head'));
-    }
-}
-const highlighter = new ContentHighlighter();
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    var _a;
-    try {
-        switch (message.action) {
-            case 'search':
-                if ((_a = message.keywords) === null || _a === void 0 ? void 0 : _a.length) {
-                    highlighter.highlightKeywords(message.keywords, message.caseSensitive);
-                    sendResponse({
-                        count: highlighter.markers.size,
-                        matches: Array.from(highlighter.markers).map(m => m.textContent || '')
-                    });
-                }
-                break;
-            case 'clear':
-                highlighter.clearHighlights();
-                sendResponse({ count: 0, matches: [] });
-                break;
-        }
-    }
-    catch (error) {
-        console.error('Message handling error:', error);
-        sendResponse({ count: 0, matches: [] });
-    }
-    return true;
-});
-chrome.runtime.onConnect.addListener(port => {
-    console.log('Connected:', port.name);
-    port.onDisconnect.addListener(() => console.log('Disconnected'));
-});
+        return true;
+    });
+})();
 //# sourceMappingURL=content.js.map
