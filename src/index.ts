@@ -1,64 +1,47 @@
-document.addEventListener('DOMContentLoaded', () => {
-  const searchButton = document.getElementById('searchButton') as HTMLButtonElement;
-  const clearButton = document.getElementById('clearButton') as HTMLButtonElement;
-  const caseSensitive = document.getElementById('caseSensitive') as HTMLInputElement;
-  const keywordsInput = document.getElementById('keywords') as HTMLInputElement;
-  const matchCount = document.getElementById('matchCount') as HTMLDivElement;
+// src/index.ts
 
-  // Load saved settings from Chrome storage
-  chrome.storage.sync.get(['keywords', 'caseSensitive'], (data: { keywords?: string; caseSensitive?: boolean }) => {
-    if (data.keywords) keywordsInput.value = data.keywords;
-    caseSensitive.checked = !!data.caseSensitive;
-  });
+const keywordsInput = document.getElementById('keywords') as HTMLInputElement;
+const caseCheckbox = document.getElementById('caseSensitive') as HTMLInputElement;
+const searchButton = document.getElementById('searchButton') as HTMLButtonElement;
+const clearButton = document.getElementById('clearButton') as HTMLButtonElement;
+const matchCount = document.getElementById('matchCount')!;
+const matchList = document.getElementById('matchList')!;
 
-  searchButton.addEventListener('click', () => {
-    const keywords = keywordsInput.value.trim();
-    if (!keywords) {
-      matchCount.textContent = 'Please enter keywords';
-      return;
+searchButton.addEventListener('click', async () => {
+  const keywords = keywordsInput.value.trim().split(/\s+/).filter(Boolean);
+  const caseSensitive = caseCheckbox.checked;
+
+  if (!keywords.length) return;
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab.id) return;
+
+  chrome.tabs.sendMessage(
+    tab.id,
+    { type: 'HIGHLIGHT_KEYWORDS', keywords, caseSensitive },
+    (response) => {
+      if (!response) return;
+
+      matchCount.textContent = `${response.count} match${response.count !== 1 ? 'es' : ''} found`;
+      matchList.innerHTML = '';
+
+      response.matches.forEach((match: string) => {
+        const li = document.createElement('li');
+        li.textContent = match;
+        matchList.appendChild(li);
+      });
     }
+  );
+});
 
-    // Save settings
-    chrome.storage.sync.set({
-      keywords: keywords,
-      caseSensitive: caseSensitive.checked,
-    });
+clearButton.addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab.id) return;
 
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs: chrome.tabs.Tab[]) => {
-      if (tabs[0].id) {
-        chrome.tabs.sendMessage(
-          tabs[0].id,
-          {
-            action: 'search',
-            keywords: keywords,
-            caseSensitive: caseSensitive.checked,
-          },
-          updateMatchCount
-        );
-      }
-    });
+  chrome.tabs.sendMessage(tab.id, { type: 'CLEAR_HIGHLIGHTS' }, () => {
+    matchCount.textContent = '';
+    matchList.innerHTML = '';
   });
 
-  clearButton.addEventListener('click', () => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs: chrome.tabs.Tab[]) => {
-      if (tabs[0].id) {
-        chrome.tabs.sendMessage(tabs[0].id, { action: 'clear' }, () => {
-          matchCount.textContent = 'Highlights cleared';
-          keywordsInput.value = '';
-        });
-      }
-    });
-  });
-
-  function updateMatchCount(response: { count: number; matchedWords?: string[] }) {
-    if (response && response.count > 0) {
-      matchCount.textContent = `${response.count} matches found: ${
-        response.matchedWords ? response.matchedWords.join(', ') : ''
-      }`;
-      matchCount.style.color = '#4CAF50';
-    } else {
-      matchCount.textContent = 'No matches found';
-      matchCount.style.color = '#ff0000';
-    }
-  }
+  keywordsInput.value = '';
 });

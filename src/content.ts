@@ -1,122 +1,62 @@
-class KeywordHighlighter {
-  highlightClass: string;
-  highlightedElements: HTMLElement[];
+let currentHighlights: HTMLElement[] = [];
 
-  constructor() {
-    this.highlightClass = 'keyword-highlight';
-    this.highlightedElements = [];
-  }
+function clearHighlights() {
+  currentHighlights.forEach(el => {
+    const parent = el.parentNode;
+    if (!parent) return;
 
-  clearHighlights(): void {
-    this.highlightedElements.forEach((element) => {
-      const parent = element.parentNode;
-      if (parent) {
-        // Replace the marked element with a text node containing its text content
-        parent.replaceChild(document.createTextNode(element.textContent || ''), element);
-        parent.normalize();
-      }
-    });
-    this.highlightedElements = [];
-  }
-
-  /**
-   * Highlights every occurrence of the keywords in the document.
-   * Returns an array of all matched words.
-   */
-  highlight(keywords: string[], caseSensitive: boolean): string[] {
-    this.clearHighlights();
-    if (!keywords.length) return [];
-
-    // Create a regex from the keywords
-    const flags = caseSensitive ? 'g' : 'gi';
-    const escapedKeywords = keywords.map((word) => this.escapeRegExp(word));
-    const regex = new RegExp(`\\b(${escapedKeywords.join('|')})\\b`, flags);
-
-    // Array to collect matched words
-    const matchedWords: string[] = [];
-
-    this.walkTextNodes((node: Text) => {
-      if (
-        node.textContent &&
-        node.textContent.trim() &&
-        !node.parentElement?.closest('script, style')
-      ) {
-        // Use matchAll to get all matches in the current text node
-        const matches = Array.from(node.textContent.matchAll(regex));
-        if (matches.length > 0) {
-          // Collect each matched word (match[0] is the matched string)
-          matches.forEach((match) => {
-            if (match[0]) {
-              matchedWords.push(match[0]);
-            }
-          });
-
-          // Create a temporary container element to build the new HTML with highlights
-          const span = document.createElement('span');
-          // Replace each matched word with a <mark> element having our highlight class
-          span.innerHTML = node.textContent.replace(
-            regex,
-            `<mark class="${this.highlightClass}">$1</mark>`
-          );
-
-          // Record all <mark> elements so we can later clear highlights
-          const newElements = Array.from(span.childNodes);
-          newElements.forEach((child) => {
-            if (child instanceof HTMLElement && child.tagName === 'MARK') {
-              child.className = this.highlightClass;
-              this.highlightedElements.push(child);
-            }
-          });
-
-          node.replaceWith(...newElements);
-        }
-      }
-    });
-
-    this.scrollToFirstMatch();
-    return matchedWords;
-  }
-
-  walkTextNodes(callback: (node: Text) => void): void {
-    const treeWalker = document.createTreeWalker(
-      document.body,
-      NodeFilter.SHOW_TEXT,
-      {
-        acceptNode: (node: Node) =>
-          node.textContent && node.textContent.trim()
-            ? NodeFilter.FILTER_ACCEPT
-            : NodeFilter.FILTER_REJECT,
-      }
-    );
-    while (treeWalker.nextNode()) {
-      callback(treeWalker.currentNode as Text);
-    }
-  }
-
-  scrollToFirstMatch(): void {
-    const firstMatch = document.querySelector(`.${this.highlightClass}`) as HTMLElement | null;
-    if (firstMatch) {
-      firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }
-
-  escapeRegExp(string: string): string {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
+    parent.replaceChild(document.createTextNode(el.textContent || ''), el);
+    parent.normalize(); // merge adjacent text nodes
+  });
+  currentHighlights = [];
 }
 
-const highlighter = new KeywordHighlighter();
+function highlightKeywords(keywords: string[], caseSensitive: boolean): string[] {
+  clearHighlights();
+  const foundMatches: string[] = [];
+  if (!keywords.length) return foundMatches;
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'search') {
-    const keywords: string[] = request.keywords
-      .split(/,\s*|\s+/)
-      .filter((word: string) => word);
-    const matchedWords = highlighter.highlight(keywords, request.caseSensitive);
-    // Return both the count of highlighted elements and the list of matched words
-    sendResponse({ count: highlighter.highlightedElements.length, matchedWords });
-  } else if (request.action === 'clear') {
-    highlighter.clearHighlights();
-    sendResponse({ count: 0, matchedWords: [] });
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+  const flags = caseSensitive ? 'g' : 'gi';
+  const keywordPattern = keywords.map(kw => kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const regex = new RegExp(`(${keywordPattern})`, flags);
+
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    const parent = node.parentElement;
+
+    if (!node.nodeValue || !regex.test(node.nodeValue)) continue;
+    const frag = document.createDocumentFragment();
+    const parts = node.nodeValue.split(regex);
+
+    parts.forEach(part => {
+      if (regex.test(part)) {
+        const span = document.createElement('span');
+        span.className = 'highlight';
+        span.textContent = part;
+        frag.appendChild(span);
+        currentHighlights.push(span);
+        foundMatches.push(part);
+      } else {
+        frag.appendChild(document.createTextNode(part));
+      }
+    });
+
+    if (parent) {
+      parent.replaceChild(frag, node);
+    }
+  }
+
+  return foundMatches;
+}
+
+// Listen for messages from popup
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === 'HIGHLIGHT_KEYWORDS') {
+    const matches = highlightKeywords(msg.keywords, msg.caseSensitive);
+    sendResponse({ count: matches.length, matches });
+  } else if (msg.type === 'CLEAR_HIGHLIGHTS') {
+    clearHighlights();
+    sendResponse({ success: true });
   }
 });
